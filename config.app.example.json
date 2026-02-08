@@ -4,7 +4,12 @@
   "click_action": "open",
   "notify_backend": "terminal-notifier",
   "terminal_notifier_path": "/opt/homebrew/bin/terminal-notifier",
+  "port": 8765,
+  "poll_seconds": 60,
   "auto_open_qr": true,
+  "use_project_config_as_default": false,
+  "use_vc_api": false,
+  "debug_uid": "",
   "autostart_main": true,
   "python_path": "/Users/shio/My/Work/Workspace/Python/bilibiliMessage/.venv/bin/python",
   "uid_names": {

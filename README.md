@@ -87,6 +87,10 @@ Config location (app mode):
 ~/Library/Application Support/B站关注通知/config.json
 ```
 On first launch, the app will copy `config.app.example.json` into this path automatically.
+If you want to use the project `config.json` as the default template, set:
+```
+"use_project_config_as_default": true
+```
 If main process fails to start due to missing modules, set:
 ```
 "python_path": "/Users/shio/My/Work/Workspace/Python/bilibiliMessage/.venv/bin/python"
@@ -102,6 +106,13 @@ Or use:
 ```
 QR login:
 - `auto_open_qr: true` will open the QR PNG automatically
+Port:
+- `port: 8765` change the local server port if 8765 is in use
+Poll interval:
+- `poll_seconds: 60` polling interval in seconds (menu countdown uses this)
+Special dynamics:
+- `use_vc_api: true` also poll legacy API to catch special/charge-only posts
+- `debug_uid: "123456"` prints recent ids/tags for that UID
 
 Autostart (login item):
 ```bash

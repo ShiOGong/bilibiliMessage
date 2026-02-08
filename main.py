@@ -4,6 +4,7 @@ import os
 import sys
 import time
 import threading
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -34,30 +35,24 @@ USER_AGENT = (
 )
 
 
+def log(msg: str):
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{ts}] {msg}")
+
+
 def load_config():
     os.makedirs(APP_DIR, exist_ok=True)
     if not os.path.exists(CONFIG_FILE):
-        # Try to copy bundled example (app mode) or local example (dev)
-        try:
-            resource = os.environ.get("RESOURCEPATH")
-            candidates = []
-            if resource:
-                candidates.append(os.path.join(resource, "config.app.example.json"))
-                candidates.append(os.path.join(resource, "config.example.json"))
-            candidates.append(os.path.abspath("config.app.example.json"))
-            candidates.append(os.path.abspath("config.example.json"))
-            for src in candidates:
-                if src and os.path.exists(src):
-                    with open(src, "r", encoding="utf-8") as fsrc:
-                        content = fsrc.read()
-                    with open(CONFIG_FILE, "w", encoding="utf-8") as fdst:
-                        fdst.write(content)
-                    print(f"Created {CONFIG_FILE} from {src}")
-                    break
-        except Exception as e:
-            print(f"Failed to create config: {e}")
-        if not os.path.exists(CONFIG_FILE):
-            print(f"Missing {CONFIG_FILE}. Create it from config.example.json")
+        # Always initialize from project config.json if present
+        project_cfg = os.path.abspath("config.json")
+        if os.path.exists(project_cfg):
+            with open(project_cfg, "r", encoding="utf-8") as fproj:
+                content = fproj.read()
+            with open(CONFIG_FILE, "w", encoding="utf-8") as fdst:
+                fdst.write(content)
+            log(f"Created {CONFIG_FILE} from {project_cfg}")
+        else:
+            log(f"Missing {CONFIG_FILE}. Create it from project config.json")
             sys.exit(1)
     with open(CONFIG_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -124,12 +119,12 @@ def notify(
                 cmd.extend(["-sender", sender])
             res = subprocess.run(cmd, check=False, capture_output=True, text=True)
             if res.returncode != 0:
-                print(f"terminal-notifier failed: {res.stderr.strip()}")
+                log(f"terminal-notifier failed: {res.stderr.strip()}")
         else:
             script = f'display notification \"{message}\" with title \"{title}\"'
             subprocess.run(["/usr/bin/osascript", "-e", script], check=False)
     except Exception as e:
-        print(f"Failed to send notification: {e}")
+        log(f"Failed to send notification: {e}")
 
 
 def show_qr_in_terminal(url: str):
@@ -148,7 +143,7 @@ def save_qr_png(url: str, path: str):
 
 
 def login_via_qr(session: requests.Session, config: dict):
-    print("Requesting QR code...")
+    log("Requesting QR code...")
     r = session.get(
         "https://passport.bilibili.com/x/passport-login/web/qrcode/generate",
         headers={"User-Agent": USER_AGENT},
@@ -161,23 +156,23 @@ def login_via_qr(session: requests.Session, config: dict):
     url = data["data"]["url"]
     qrcode_key = data["data"]["qrcode_key"]
 
-    print("Scan this QR code with the Bilibili app:")
+    log("Scan this QR code with the Bilibili app:")
     show_qr_in_terminal(url)
     os.makedirs(APP_DIR, exist_ok=True)
     png_path = os.path.join(APP_DIR, "bili_qr.png")
     try:
         save_qr_png(url, png_path)
-        print(f"QR image saved to {png_path}")
-        print("If terminal QR is hard to scan, open the PNG file.")
+        log(f"QR image saved to {png_path}")
+        log("If terminal QR is hard to scan, open the PNG file.")
         if config.get("auto_open_qr", True):
             import subprocess
 
             subprocess.run(["/usr/bin/open", png_path], check=False)
     except Exception as e:
-        print(f"Failed to save QR PNG: {e}")
-    print(f"Or copy this URL into a QR generator if needed: {url}")
+        log(f"Failed to save QR PNG: {e}")
+    log(f"Or copy this URL into a QR generator if needed: {url}")
 
-    print("Waiting for scan confirmation...")
+    log("Waiting for scan confirmation...")
     while True:
         time.sleep(2)
         poll = session.get(
@@ -192,13 +187,13 @@ def login_via_qr(session: requests.Session, config: dict):
             raise RuntimeError(f"QR poll failed: {pdata}")
         status = pdata["data"]["code"]
         if status == 0:
-            print("Login successful.")
+            log("Login successful.")
             save_cookies(session)
             return
         if status == 86038:
             raise RuntimeError("QR code expired. Please restart.")
         if status == 86090:
-            print("Scanned, please confirm on your phone...")
+            log("Scanned, please confirm on your phone...")
         elif status == 86101:
             # not scanned yet
             pass
@@ -237,6 +232,29 @@ def fetch_latest_items(session: requests.Session, uid: str):
     return data.get("data", {}).get("items", [])
 
 
+def fetch_latest_ids_vc(session: requests.Session, uid: str, limit: int = 20):
+    # Legacy endpoint sometimes includes special dynamics (e.g., charge-only)
+    params = {"host_uid": uid, "offset_dynamic_id": 0, "need_top": 1}
+    r = session.get(
+        "https://api.vc.bilibili.com/dynamic_svr/v1/dynamic_svr/space_history",
+        params=params,
+        headers={"User-Agent": USER_AGENT},
+        timeout=10,
+    )
+    r.raise_for_status()
+    data = r.json()
+    if data.get("code") != 0:
+        raise RuntimeError(f"Fetch vc dynamic failed for {uid}: {data}")
+    cards = data.get("data", {}).get("cards", []) or []
+    ids = []
+    for c in cards[:limit]:
+        desc = (c or {}).get("desc") or {}
+        did = desc.get("dynamic_id") or desc.get("dynamic_id_str")
+        if did:
+            ids.append(str(did))
+    return ids
+
+
 def fetch_user_name(session: requests.Session, uid: str):
     r = session.get(
         "https://api.bilibili.com/x/space/acc/info",
@@ -258,6 +276,16 @@ def get_item_tag(item):
     module_tag = modules.get("module_tag") or {}
     return module_tag.get("text")
 
+def get_item_pub_ts(item):
+    if not isinstance(item, dict):
+        return None
+    modules = item.get("modules") or {}
+    author = modules.get("module_author") or {}
+    ts = author.get("pub_ts")
+    if isinstance(ts, int):
+        return ts
+    return None
+
 
 def latest_non_pinned_id(items):
     for item in items:
@@ -266,6 +294,15 @@ def latest_non_pinned_id(items):
             if isinstance(item, dict):
                 return item.get("id_str")
     return None
+
+
+def latest_non_pinned_id_ts(items):
+    for item in items:
+        tag = get_item_tag(item)
+        if tag != "置顶":
+            if isinstance(item, dict):
+                return item.get("id_str"), get_item_pub_ts(item)
+    return None, None
 
 
 def collect_new_ids(items, last_seen):
@@ -289,6 +326,7 @@ class ReadState:
         self.lock = threading.Lock()
         self.unread_by_uid = {}
         self.last_seen_by_uid = {}
+        self.last_seen_ts_by_uid = {}
         self.names_by_uid = {}
         self.token = os.urandom(16).hex()
         self.persist = persist
@@ -302,8 +340,9 @@ class ReadState:
             self.last_seen_by_uid = data.get("last_seen", {})
             self.unread_by_uid = data.get("unread", {})
             self.names_by_uid = data.get("names", {})
+            self.last_seen_ts_by_uid = data.get("last_seen_ts", {})
         except Exception as e:
-            print(f"Failed to load state: {e}")
+            log(f"Failed to load state: {e}")
 
     def save(self):
         if not self.persist:
@@ -314,11 +353,12 @@ class ReadState:
                 "last_seen": self.last_seen_by_uid,
                 "unread": self.unread_by_uid,
                 "names": self.names_by_uid,
+                "last_seen_ts": self.last_seen_ts_by_uid,
             }
             with open(STATE_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=True, indent=2)
         except Exception as e:
-            print(f"Failed to save state: {e}")
+            log(f"Failed to save state: {e}")
 
     def mark_read(self, uid: str):
         with self.lock:
@@ -326,14 +366,20 @@ class ReadState:
                 del self.unread_by_uid[uid]
         self.save()
 
-    def set_last_seen(self, uid: str, dynamic_id: str):
+    def set_last_seen(self, uid: str, dynamic_id: str, pub_ts: int = None):
         with self.lock:
             self.last_seen_by_uid[uid] = dynamic_id
+            if pub_ts:
+                self.last_seen_ts_by_uid[uid] = int(pub_ts)
         self.save()
 
     def get_last_seen(self, uid: str):
         with self.lock:
             return self.last_seen_by_uid.get(uid)
+
+    def get_last_seen_ts(self, uid: str):
+        with self.lock:
+            return self.last_seen_ts_by_uid.get(uid)
 
     def add_unread(self, uid: str, ids):
         if not ids:
@@ -393,7 +439,7 @@ class ReadHandler(BaseHTTPRequestHandler):
                 self.send_response(403)
                 self.end_headers()
                 self.wfile.write(b"forbidden")
-                print(f"[read] forbidden token={token} uid={uid}")
+                log(f"[read] forbidden token={token} uid={uid}")
                 return
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -416,7 +462,7 @@ class ReadHandler(BaseHTTPRequestHandler):
                 self.send_response(403)
                 self.end_headers()
                 self.wfile.write(b"forbidden")
-                print(f"[status] forbidden token={token}")
+                log(f"[status] forbidden token={token}")
                 return
             payload = []
             for u in self.state.get_unread_uids():
@@ -439,11 +485,11 @@ class ReadHandler(BaseHTTPRequestHandler):
                 self.send_response(403)
                 self.end_headers()
                 self.wfile.write(b"forbidden")
-                print(f"[read] forbidden token={token} uid={uid}")
+                log(f"[read] forbidden token={token} uid={uid}")
                 return
             for u in self.state.get_unread_uids():
                 self.state.mark_read(u)
-            print("[read] marked all (web)")
+            log("[read] marked all (web)")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
@@ -457,11 +503,11 @@ class ReadHandler(BaseHTTPRequestHandler):
                 self.send_response(403)
                 self.end_headers()
                 self.wfile.write(b"forbidden")
-                print(f"[read] forbidden token={token} uid={uid}")
+                log(f"[read] forbidden token={token} uid={uid}")
                 return
             if uid:
                 self.state.mark_read(uid)
-                print(f"[read] marked uid={uid}")
+                log(f"[read] marked uid={uid}")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
@@ -493,7 +539,7 @@ def write_token(token: str):
         with open(TOKEN_FILE, "w", encoding="utf-8") as f:
             f.write(token)
     except Exception as e:
-        print(f"Failed to write token file: {e}")
+        log(f"Failed to write token file: {e}")
 
 
 def start_stdin_commands(state: ReadState):
@@ -514,16 +560,16 @@ def start_stdin_commands(state: ReadState):
             if cmd == "read" and len(parts) >= 2:
                 uid = parts[1]
                 state.mark_read(uid)
-                print(f"[read] marked uid={uid} (stdin)")
+                log(f"[read] marked uid={uid} (stdin)")
             elif cmd == "readall":
                 for uid in state.get_unread_uids():
                     state.mark_read(uid)
-                print("[read] marked all (stdin)")
+                log("[read] marked all (stdin)")
             elif cmd == "status":
                 for uid in state.get_unread_uids():
-                    print(f"[status] uid={uid} unread={state.get_unread_count(uid)}")
+                    log(f"[status] uid={uid} unread={state.get_unread_count(uid)}")
             else:
-                print("Commands: read <uid> | readall | status")
+                log("Commands: read <uid> | readall | status")
 
     t = threading.Thread(target=run, daemon=True)
     t.start()
@@ -538,16 +584,31 @@ def main():
     click_action = config.get("click_action", "open")
     backend = config.get("notify_backend", "terminal-notifier")
     notifier_path = config.get("terminal_notifier_path")
+    use_vc_api = bool(config.get("use_vc_api", False))
+    debug_uid = str(config.get("debug_uid", "")).strip()
+    global SERVER_PORT
+    SERVER_PORT = int(config.get("port", SERVER_PORT))
+    global POLL_SECONDS
+    POLL_SECONDS = int(config.get("poll_seconds", POLL_SECONDS))
+    initial_time_str = str(config.get("initial_install_time", "")).strip()
+    initial_time_ts = None
+    if initial_time_str:
+        try:
+            initial_time_ts = int(
+                datetime.strptime(initial_time_str, "%Y-%m-%d %H:%M:%S").timestamp()
+            )
+        except Exception:
+            log("Invalid initial_install_time format. Use YYYY-MM-DD HH:MM:SS")
     global NOTIFIER_BIN
     NOTIFIER_BIN = find_terminal_notifier(notifier_path)
     if backend == "terminal-notifier" and not NOTIFIER_BIN:
-        print("terminal-notifier not found in PATH. Falling back to osascript.")
+        log("terminal-notifier not found in PATH. Falling back to osascript.")
         backend = "osascript"
     if mode not in (1, 2):
-        print("Invalid mode in config.json. Use 1 or 2.")
+        log("Invalid mode in config.json. Use 1 or 2.")
         sys.exit(1)
     if not uids:
-        print("No UIDs configured in config.json")
+        log("No UIDs configured in config.json")
         sys.exit(1)
 
     session = requests.Session()
@@ -557,7 +618,7 @@ def main():
     if not is_logged_in(session):
         login_via_qr(session, config)
         if not is_logged_in(session):
-            print("Login failed. Please try again.")
+            log("Login failed. Please try again.")
             sys.exit(1)
 
     state = ReadState(persist=(mode == 1))
@@ -565,8 +626,8 @@ def main():
     start_server(state)
     write_token(state.token)
     start_stdin_commands(state)
-    print(f"Dashboard: http://{SERVER_HOST}:{SERVER_PORT}/?token={state.token}")
-    print(f"Read server: http://{SERVER_HOST}:{SERVER_PORT}/read?uid=<UID>&token=...")
+    log(f"Dashboard: http://{SERVER_HOST}:{SERVER_PORT}/?token={state.token}")
+    log(f"Read server: http://{SERVER_HOST}:{SERVER_PORT}/read?uid=<UID>&token=...")
 
     # Resolve names (custom first, then fetch)
     for uid in uids:
@@ -580,45 +641,79 @@ def main():
                 if name:
                     state.set_name(uid, name)
             except Exception as e:
-                print(f"[name] fetch failed for {uid}: {e}")
+                log(f"[name] fetch failed for {uid}: {e}")
 
     # Initialize last seen and catch up missed updates (mode 1)
     for uid in uids:
         try:
             items = fetch_latest_items(session, uid)
-            latest = latest_non_pinned_id(items)
+            latest, latest_ts = latest_non_pinned_id_ts(items)
             last_seen = state.get_last_seen(uid)
             if latest and not last_seen:
                 # First run: set baseline to avoid old spam
-                state.set_last_seen(uid, latest)
+                state.set_last_seen(uid, latest, latest_ts)
             elif latest and last_seen:
                 new_ids = collect_new_ids(items, last_seen)
                 if new_ids:
                     state.add_unread(uid, new_ids)
-                    state.set_last_seen(uid, latest)
-            print(f"[init] uid={uid} latest={latest} items={len(items)}")
+                    state.set_last_seen(uid, latest, latest_ts)
+            last_ts = state.get_last_seen_ts(uid)
+            last_ts_str = (
+                datetime.fromtimestamp(last_ts).strftime("%Y-%m-%d %H:%M:%S")
+                if last_ts
+                else "unknown"
+            )
+            log(
+                f"[init] uid={uid} latest_id={latest} last_seen_time={last_ts_str} items={len(items)}"
+            )
         except Exception as e:
-            print(f"Init fetch failed for {uid}: {e}")
+            log(f"Init fetch failed for {uid}: {e}")
 
-    print("Monitoring started. Press Ctrl+C to stop.")
+    log("Monitoring started. Press Ctrl+C to stop.")
 
     while True:
-        print(f"[poll] {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        log("[poll]")
         for uid in uids:
             try:
                 items = fetch_latest_items(session, uid)
+                if use_vc_api:
+                    try:
+                        extra_ids = fetch_latest_ids_vc(session, uid)
+                    except Exception as e:
+                        extra_ids = []
+                        log(f"[vc] fetch failed uid={uid}: {e}")
                 last_seen = state.get_last_seen(uid)
                 new_ids = collect_new_ids(items, last_seen)
+                if use_vc_api and extra_ids:
+                    # add ids from vc endpoint that are newer than last_seen
+                    for xid in extra_ids:
+                        if xid == last_seen:
+                            break
+                        if xid not in new_ids:
+                            new_ids.append(xid)
                 if new_ids:
                     state.add_unread(uid, new_ids)
-                    newest = latest_non_pinned_id(items)
+                    newest, newest_ts = latest_non_pinned_id_ts(items)
                     if newest:
-                        state.set_last_seen(uid, newest)
-                print(
-                    f"[uid] {uid} items={len(items)} last_seen={last_seen} new={len(new_ids)}"
+                        state.set_last_seen(uid, newest, newest_ts)
+                last_ts = state.get_last_seen_ts(uid)
+                last_ts_str = (
+                    datetime.fromtimestamp(last_ts).strftime("%Y-%m-%d %H:%M:%S")
+                    if last_ts
+                    else "unknown"
                 )
+                log(
+                    f"[uid] {uid} items={len(items)} last_seen_id={last_seen} last_seen_time={last_ts_str} new={len(new_ids)}"
+                )
+                if debug_uid and uid == debug_uid:
+                    # dump recent ids/tags for debugging
+                    for it in items[:10]:
+                        if not isinstance(it, dict):
+                            continue
+                        tag = get_item_tag(it)
+                        log(f"[debug] uid={uid} id={it.get('id_str')} tag={tag}")
             except Exception as e:
-                print(f"Fetch failed for {uid}: {e}")
+                log(f"Fetch failed for {uid}: {e}")
 
         # Notify for unread
         for uid in state.get_unread_uids():
@@ -635,8 +730,8 @@ def main():
                 click_action=click_action,
                 backend=backend,
             )
-            print(f"[notify] mark url: {url}")
-            print(f"[notify] uid={uid} count={count}")
+            log(f"[notify] mark url: {url}")
+            log(f"[notify] uid={uid} count={count}")
 
         time.sleep(POLL_SECONDS)
 
@@ -645,4 +740,4 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("Stopped.")
+        log("Stopped.")

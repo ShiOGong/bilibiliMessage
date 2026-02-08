@@ -2,6 +2,11 @@
   "mode": 2,
   "sender": "com.apple.Terminal",
   "click_action": "execute",
+  "port": 8765,
+  "poll_seconds": 60,
+  "use_project_config_as_default": false,
+  "use_vc_api": false,
+  "debug_uid": "",
   "uid_names": {
     "123456": "自定义昵称"
   },

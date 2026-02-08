@@ -18,6 +18,7 @@ APP_DIR = os.path.join(
 CONFIG_FILE = os.path.join(APP_DIR, "config.json")
 TOKEN_FILE = os.path.join(APP_DIR, "token.txt")
 LOG_FILE = os.path.join(APP_DIR, "main.log")
+PID_FILE = os.path.join(APP_DIR, "main.pid")
 SERVER_HOST = "127.0.0.1"
 SERVER_PORT = 8765
 
@@ -26,6 +27,20 @@ def load_config():
     os.makedirs(APP_DIR, exist_ok=True)
     if not os.path.exists(CONFIG_FILE):
         try:
+            project_cfg = os.path.abspath("config.json")
+            if os.path.exists(project_cfg):
+                try:
+                    with open(project_cfg, "r", encoding="utf-8") as fproj:
+                        proj_data = json.load(fproj)
+                    if proj_data.get("use_project_config_as_default") is True:
+                        with open(project_cfg, "r", encoding="utf-8") as fproj_raw:
+                            content = fproj_raw.read()
+                        with open(CONFIG_FILE, "w", encoding="utf-8") as fdst:
+                            fdst.write(content)
+                        return json.loads(content)
+                except Exception:
+                    pass
+
             resource = os.environ.get("RESOURCEPATH")
             candidates = []
             if resource:
@@ -113,15 +128,35 @@ def start_main_process():
         cfg = load_config()
         py = preferred_python(cfg)
         with open(LOG_FILE, "a", encoding="utf-8") as log:
-            subprocess.Popen(
+            proc = subprocess.Popen(
                 [py, script],
                 stdout=log,
                 stderr=log,
                 start_new_session=True,
             )
+        try:
+            with open(PID_FILE, "w", encoding="utf-8") as f:
+                f.write(str(proc.pid))
+        except Exception:
+            pass
         return True
     except Exception:
         return False
+
+
+def stop_main_process():
+    if not os.path.exists(PID_FILE):
+        return
+    try:
+        with open(PID_FILE, "r", encoding="utf-8") as f:
+            pid = int(f.read().strip())
+        os.kill(pid, 15)
+    except Exception:
+        pass
+    try:
+        os.remove(PID_FILE)
+    except Exception:
+        pass
 
 
 def is_server_up(token: str):
@@ -139,18 +174,25 @@ class BiliMenuApp(rumps.App):
         super().__init__("B站", quit_button=None)
         self.token = None
         self.items = []
+        self.last_total = 0
+        self.next_refresh_ts = None
+        self.refresh_interval = 60
         self.menu = [
             rumps.MenuItem("Open Dashboard", callback=self.open_dashboard),
             rumps.MenuItem("Start Monitor", callback=self.start_monitor),
             rumps.MenuItem("Edit Config", callback=self.edit_config),
+            rumps.MenuItem("View Logs", callback=self.view_logs),
             rumps.MenuItem("Refresh", callback=self.refresh),
             rumps.MenuItem("Quit", callback=self.quit_app),
         ]
-        self.timer = rumps.Timer(self.refresh, 30)
+        self.timer = rumps.Timer(self.refresh, self.refresh_interval)
         self.timer.start()
+        self.countdown_timer = rumps.Timer(self._tick, 1)
+        self.countdown_timer.start()
         self.refresh(None)
 
     def quit_app(self, _):
+        stop_main_process()
         rumps.quit_application()
 
     def open_dashboard(self, _):
@@ -196,12 +238,30 @@ class BiliMenuApp(rumps.App):
             f.write(text)
         rumps.alert("Config saved. Restart if needed.")
 
+    def view_logs(self, _):
+        os.makedirs(APP_DIR, exist_ok=True)
+        if not os.path.exists(LOG_FILE):
+            # create empty log so tail works
+            with open(LOG_FILE, "a", encoding="utf-8"):
+                pass
+        cmd = f'tell application "Terminal" to do script "tail -f \\"{LOG_FILE}\\""'
+        try:
+            subprocess.run(["/usr/bin/osascript", "-e", cmd], check=False)
+        except Exception:
+            rumps.alert("Failed to open Terminal for logs.")
+
     def refresh(self, _):
+        cfg = load_config()
+        global SERVER_PORT
+        SERVER_PORT = int(cfg.get("port", SERVER_PORT))
+        interval = int(cfg.get("poll_seconds", self.refresh_interval))
+        if interval != self.refresh_interval:
+            self.refresh_interval = interval
+            self.timer.interval = interval
         if not self.token:
             self.token = read_token()
 
         if not is_server_up(self.token):
-            cfg = load_config()
             if cfg.get("autostart_main", True):
                 start_main_process()
                 time.sleep(1)
@@ -221,18 +281,27 @@ class BiliMenuApp(rumps.App):
             data = r.json()
             items = data.get("items", [])
             self._render_items(items)
+            self.next_refresh_ts = time.time() + self.refresh_interval
         except Exception:
             self.title = "B站(!)"
             self._render_items([])
 
     def _render_items(self, items):
-        fixed = ["Open Dashboard", "Start Monitor", "Edit Config", "Refresh", "Quit"]
+        fixed = [
+            "Open Dashboard",
+            "Start Monitor",
+            "Edit Config",
+            "View Logs",
+            "Refresh",
+            "Quit",
+        ]
         for key in list(self.menu.keys()):
             if key not in fixed:
                 del self.menu[key]
 
         self.items = items
         total = sum(int(x.get("count", 0)) for x in items)
+        self.last_total = total
         self.title = f"B站({total})" if total else "B站"
 
         for item in items:
@@ -254,6 +323,13 @@ class BiliMenuApp(rumps.App):
                 pass
             self.refresh(None)
         return _cb
+
+    def _tick(self, _):
+        if not self.next_refresh_ts:
+            return
+        remaining = max(0, int(self.next_refresh_ts - time.time()))
+        base = f"B站({self.last_total})" if self.last_total else "B站"
+        self.title = f"{base} {remaining}s"
 
 
 if __name__ == "__main__":
