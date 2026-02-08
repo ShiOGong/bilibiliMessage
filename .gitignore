@@ -1,0 +1,19 @@
+.venv/
+__pycache__/
+.DS_Store
+.idea/
+BiliNotify.iconset/
+dist/
+build/
+*.icns
+*.png
+
+# runtime data
+config.json
+cookies.json
+state.json
+token.txt
+main.log
+
+# optional QR output
+bili_qr.png

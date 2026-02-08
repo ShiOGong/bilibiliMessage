@@ -1,0 +1,12 @@
+{
+  "mode": 2,
+  "sender": "com.apple.Terminal",
+  "click_action": "execute",
+  "uid_names": {
+    "123456": "自定义昵称"
+  },
+  "uids": [
+    "123456",
+    "987654"
+  ]
+}
