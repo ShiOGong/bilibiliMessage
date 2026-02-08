@@ -1,0 +1,17 @@
+{
+  "mode": 2,
+  "sender": "dev.warp.Warp",
+  "click_action": "open",
+  "autostart_main": true,
+  "python_path": "/Users/shio/My/Work/Workspace/Python/bilibiliMessage/.venv/bin/python",
+  "notify_backend": "terminal-notifier",
+  "terminal_notifier_path": "/opt/homebrew/bin/terminal-notifier",
+  "uid_names": {
+    "1467066": "我自己"
+  },
+  "uids": [
+    "25270495",
+    "1039025435",
+    "1467066"
+  ]
+}
