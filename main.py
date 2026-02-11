@@ -305,7 +305,7 @@ def latest_non_pinned_id_ts(items):
     return None, None
 
 
-def collect_new_ids(items, last_seen):
+def collect_new_ids(items, last_seen, min_ts=None):
     new_ids = []
     for item in items:
         if not isinstance(item, dict):
@@ -316,6 +316,10 @@ def collect_new_ids(items, last_seen):
         item_id = item.get("id_str")
         if item_id == last_seen:
             break
+        if min_ts:
+            pub_ts = get_item_pub_ts(item)
+            if pub_ts and pub_ts < min_ts:
+                break
         if item_id:
             new_ids.append(item_id)
     return new_ids
@@ -650,7 +654,10 @@ def main():
             latest, latest_ts = latest_non_pinned_id_ts(items)
             last_seen = state.get_last_seen(uid)
             if latest and not last_seen:
-                # First run: set baseline to avoid old spam
+                # First run: use initial_time_ts to filter old dynamics
+                new_ids = collect_new_ids(items, None, initial_time_ts)
+                if new_ids:
+                    state.add_unread(uid, new_ids)
                 state.set_last_seen(uid, latest, latest_ts)
             elif latest and last_seen:
                 new_ids = collect_new_ids(items, last_seen)
