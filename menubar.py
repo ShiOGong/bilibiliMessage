@@ -193,6 +193,11 @@ class BiliMenuApp(rumps.App):
 
     def quit_app(self, _):
         stop_main_process()
+        if os.path.exists(LOG_FILE):
+            try:
+                os.remove(LOG_FILE)
+            except Exception:
+                pass
         rumps.quit_application()
 
     def open_dashboard(self, _):
