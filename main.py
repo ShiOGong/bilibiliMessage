@@ -13,6 +13,7 @@ import qrcode
 
 APP_NAME = "bilibiliMessage"
 APP_DISPLAY_NAME = "B站关注通知"
+APP_VERSION = "1.1.0"
 APP_DIR = os.path.join(
     os.path.expanduser("~"),
     "Library",
@@ -282,6 +283,16 @@ def get_item_pub_ts(item):
     modules = item.get("modules") or {}
     author = modules.get("module_author") or {}
     ts = author.get("pub_ts")
+    if isinstance(ts, int):
+        return ts
+    basic = item.get("basic") or {}
+    ts = basic.get("pub_ts")
+    if isinstance(ts, int):
+        return ts
+    ts = item.get("pub_ts")
+    if isinstance(ts, int):
+        return ts
+    ts = item.get("pub_time")
     if isinstance(ts, int):
         return ts
     return None
@@ -580,6 +591,7 @@ def start_stdin_commands(state: ReadState):
 
 
 def main():
+    log(f"Starting {APP_DISPLAY_NAME} v{APP_VERSION}")
     config = load_config()
     uids = [str(x) for x in config.get("uids", [])]
     sender = config.get("sender")
@@ -723,22 +735,26 @@ def main():
                 log(f"Fetch failed for {uid}: {e}")
 
         # Notify for unread
-        for uid in state.get_unread_uids():
-            count = state.get_unread_count(uid)
-            if count <= 0:
-                continue
-            url = f"http://{SERVER_HOST}:{SERVER_PORT}/read?uid={uid}&token={state.token}"
-            name = state.get_name(uid) or uid
-            notify(
-                title="Bilibili 动态更新",
-                message=f"{name} 有 {count} 条新动态，点击标记已读",
-                open_url=url,
-                sender=sender,
-                click_action=click_action,
-                backend=backend,
-            )
-            log(f"[notify] mark url: {url}")
-            log(f"[notify] uid={uid} count={count}")
+        unread_uids = state.get_unread_uids()
+        if unread_uids:
+            notify_items = []
+            for uid in unread_uids:
+                count = state.get_unread_count(uid)
+                if count > 0:
+                    name = state.get_name(uid) or uid
+                    notify_items.append(f"{name} {count}条")
+                    log(f"[notify] uid={uid} count={count}")
+            if notify_items:
+                url = f"http://{SERVER_HOST}:{SERVER_PORT}/?token={state.token}"
+                message = ", ".join(notify_items)
+                notify(
+                    title="Bilibili 动态更新",
+                    message=f"{message}，点击查看",
+                    open_url=url,
+                    sender=sender,
+                    click_action=click_action,
+                    backend=backend,
+                )
 
         time.sleep(POLL_SECONDS)
 

@@ -9,6 +9,7 @@ import requests
 import rumps
 
 APP_DISPLAY_NAME = "B站关注通知"
+APP_VERSION = "1.1.0"
 APP_DIR = os.path.join(
     os.path.expanduser("~"),
     "Library",
@@ -178,6 +179,8 @@ class BiliMenuApp(rumps.App):
         self.next_refresh_ts = None
         self.refresh_interval = 60
         self.menu = [
+            rumps.MenuItem(f"Version {APP_VERSION}"),
+            None,
             rumps.MenuItem("Open Dashboard", callback=self.open_dashboard),
             rumps.MenuItem("Start Monitor", callback=self.start_monitor),
             rumps.MenuItem("Edit Config", callback=self.edit_config),

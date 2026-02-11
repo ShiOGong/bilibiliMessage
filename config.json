@@ -1,23 +1,27 @@
 {
-  "mode": 1,
-  "sender": "dev.warp.Warp",
-  "click_action": "open",
-  "notify_backend": "terminal-notifier",
-  "terminal_notifier_path": "/opt/homebrew/bin/terminal-notifier",
-  "port": 8765,
-  "poll_seconds": 60,
-  "auto_open_qr": true,
-  "use_vc_api": true,
-  "debug_uid": "",
-  "python_path": "/Users/shio/My/Work/Workspace/Python/bilibiliMessage/.venv/bin/python",
-  "autostart_main": true,
-  "initial_install_time": "2026-02-08 00:00:00",
-      "uid_names": {
-        "1467066": "我自己"
+    "mode": 1,
+    "sender": "dev.warp.Warp",
+    "click_action": "open",
+    "notify_backend": "terminal-notifier",
+    "terminal_notifier_path": "/opt/homebrew/bin/terminal-notifier",
+    "port": 8765,
+    "poll_seconds": 60,
+    "auto_open_qr": true,
+    "use_vc_api": true,
+    "debug_uid": "",
+    "python_path": "/Users/shio/My/Work/Workspace/Python/bilibiliMessage/.venv/bin/python",
+    "autostart_main": true,
+    "initial_install_time": "2026-02-08 00:00:00",
+    "uid_names": {
+        "1467066": "我自己",
+        "25270495": "boss 墨",
+        "390894226": "宋鸿兵",
+        "1039025435": "战国时代"
     },
     "uids": [
         "25270495",
         "1039025435",
-        "1467066"
+        "1467066",
+        "390894226"
     ]
 }
