@@ -1,17 +1,21 @@
 {
-  "mode": 2,
-  "sender": "com.apple.Terminal",
-  "click_action": "execute",
-  "port": 8765,
-  "poll_seconds": 60,
-  "use_project_config_as_default": false,
-  "use_vc_api": false,
-  "debug_uid": "",
-  "uid_names": {
-    "123456": "自定义昵称"
-  },
-  "uids": [
-    "123456",
-    "987654"
-  ]
+    "mode": 1,
+    "sender": "dev.warp.Warp",
+    "click_action": "open",
+    "notify_backend": "terminal-notifier",
+    "terminal_notifier_path": "/opt/homebrew/bin/terminal-notifier",
+    "port": 8765,
+    "poll_seconds": 60,
+    "auto_open_qr": true,
+    "use_vc_api": true,
+    "debug_uid": "",
+    "python_path": "/Users/shio/My/Work/Workspace/Python/bilibiliMessage/.venv/bin/python",
+    "autostart_main": true,
+    "initial_install_time": "2026-02-08 00:00:00",
+    "uid_names": {
+        "1467066": "我自己"
+    },
+    "uids": [
+        "1467066"
+    ]
 }
