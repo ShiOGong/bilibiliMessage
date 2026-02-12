@@ -4,6 +4,7 @@ import os
 import sys
 import time
 import subprocess
+from datetime import datetime
 
 import requests
 import rumps
@@ -20,6 +21,7 @@ CONFIG_FILE = os.path.join(APP_DIR, "config.json")
 TOKEN_FILE = os.path.join(APP_DIR, "token.txt")
 LOG_FILE = os.path.join(APP_DIR, "main.log")
 PID_FILE = os.path.join(APP_DIR, "main.pid")
+STATE_FILE = os.path.join(APP_DIR, "state.json")
 SERVER_HOST = "127.0.0.1"
 SERVER_PORT = 8765
 
@@ -185,6 +187,7 @@ class BiliMenuApp(rumps.App):
             rumps.MenuItem("Start Monitor", callback=self.start_monitor),
             rumps.MenuItem("Edit Config", callback=self.edit_config),
             rumps.MenuItem("View Logs", callback=self.view_logs),
+            rumps.MenuItem("已读时间点", callback=self.show_last_seen_times),
             rumps.MenuItem("Refresh", callback=self.refresh),
             rumps.MenuItem("Quit", callback=self.quit_app),
         ]
@@ -202,6 +205,29 @@ class BiliMenuApp(rumps.App):
             except Exception:
                 pass
         rumps.quit_application()
+
+    def show_last_seen_times(self, _):
+        if not os.path.exists(STATE_FILE):
+            rumps.alert("暂无已读时间点记录")
+            return
+        try:
+            with open(STATE_FILE, "r", encoding="utf-8") as f:
+                state_data = json.load(f)
+            last_seen_ts = state_data.get("last_seen_ts", {})
+            if not last_seen_ts:
+                rumps.alert("暂无已读时间点记录")
+                return
+            lines = []
+            for uid, ts in last_seen_ts.items():
+                try:
+                    time_str = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+                    lines.append(f"UID: {uid}\n时间: {time_str}")
+                except Exception:
+                    lines.append(f"UID: {uid}\n时间: 无效时间戳")
+            message = "\n\n".join(lines)
+            rumps.alert(title="已读时间点", message=message)
+        except Exception as e:
+            rumps.alert(f"读取已读时间点失败: {str(e)}")
 
     def open_dashboard(self, _):
         if not self.token:
@@ -296,10 +322,12 @@ class BiliMenuApp(rumps.App):
 
     def _render_items(self, items):
         fixed = [
+            f"Version {APP_VERSION}",
             "Open Dashboard",
             "Start Monitor",
             "Edit Config",
             "View Logs",
+            "已读时间点",
             "Refresh",
             "Quit",
         ]

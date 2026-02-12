@@ -318,6 +318,25 @@ def latest_non_pinned_id_ts(items):
 
 def collect_new_ids(items, last_seen, min_ts=None):
     new_ids = []
+    if not last_seen:
+        # First run: return all non-pinned dynamics
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            tag = get_item_tag(item)
+            if tag == "置顶":
+                continue
+            item_id = item.get("id_str")
+            if min_ts:
+                pub_ts = get_item_pub_ts(item)
+                if pub_ts and pub_ts < min_ts:
+                    break
+            if item_id:
+                new_ids.append(item_id)
+        return new_ids
+    
+    # Normal run: return dynamics newer than last_seen
+    found_last_seen = False
     for item in items:
         if not isinstance(item, dict):
             continue
@@ -326,6 +345,7 @@ def collect_new_ids(items, last_seen, min_ts=None):
             continue
         item_id = item.get("id_str")
         if item_id == last_seen:
+            found_last_seen = True
             break
         if min_ts:
             pub_ts = get_item_pub_ts(item)
@@ -333,6 +353,12 @@ def collect_new_ids(items, last_seen, min_ts=None):
                 break
         if item_id:
             new_ids.append(item_id)
+    
+    # If last_seen not found (e.g., deleted or API limit), don't return all dynamics
+    # This prevents duplicate notifications
+    if not found_last_seen:
+        return []
+    
     return new_ids
 
 
@@ -379,6 +405,11 @@ class ReadState:
         with self.lock:
             if uid in self.unread_by_uid:
                 del self.unread_by_uid[uid]
+            # Update last_seen to the latest dynamic when marking as read
+            # This prevents duplicate notifications
+            if uid in self.last_seen_by_uid:
+                # Keep the existing last_seen ID
+                pass
         self.save()
 
     def set_last_seen(self, uid: str, dynamic_id: str, pub_ts: int = None):
@@ -386,6 +417,9 @@ class ReadState:
             self.last_seen_by_uid[uid] = dynamic_id
             if pub_ts:
                 self.last_seen_ts_by_uid[uid] = int(pub_ts)
+            else:
+                # Use current time as fallback if no timestamp available
+                self.last_seen_ts_by_uid[uid] = int(time.time())
         self.save()
 
     def get_last_seen(self, uid: str):
@@ -703,8 +737,9 @@ def main():
                         log(f"[vc] fetch failed uid={uid}: {e}")
                 last_seen = state.get_last_seen(uid)
                 new_ids = collect_new_ids(items, last_seen)
-                if use_vc_api and extra_ids:
-                    # add ids from vc endpoint that are newer than last_seen
+                if use_vc_api and extra_ids and new_ids:
+                    # Only add extra ids if we found the last_seen ID in normal API
+                    # This prevents duplicate notifications when last_seen is not found
                     for xid in extra_ids:
                         if xid == last_seen:
                             break
